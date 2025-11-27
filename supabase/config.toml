@@ -1,0 +1,7 @@
+project_id = "eoidzprqsvimgtwegowv"
+
+[functions.update-upcoming-status]
+verify_jwt = false
+
+[functions.send-release-notification]
+verify_jwt = false
