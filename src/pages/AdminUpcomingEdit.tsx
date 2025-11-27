@@ -33,6 +33,18 @@ const AdminUpcomingEdit = () => {
     is_featured: false,
     tmdb_id: null as number | null,
     content_id: null as string | null,
+    genre: "",
+    vote_average: null as number | null,
+    popularity: null as number | null,
+    original_language: "",
+    tagline: "",
+  });
+
+  const [importedData, setImportedData] = useState({
+    castCount: 0,
+    trailerFound: false,
+    seasonsCount: 0,
+    episodesCount: 0,
   });
 
   const { data: upcomingItem, isLoading } = useQuery({
@@ -63,9 +75,39 @@ const AdminUpcomingEdit = () => {
         is_featured: upcomingItem.is_featured || false,
         tmdb_id: upcomingItem.tmdb_id || null,
         content_id: upcomingItem.content_id || null,
+        genre: "",
+        vote_average: null,
+        popularity: null,
+        original_language: "",
+        tagline: "",
       });
+
+      // Fetch imported data counts if content_id exists
+      if (upcomingItem.content_id) {
+        fetchImportedDataCounts(upcomingItem.content_id);
+      }
     }
   }, [upcomingItem]);
+
+  const fetchImportedDataCounts = async (contentId: string) => {
+    try {
+      const [castRes, trailerRes, seasonsRes, episodesRes] = await Promise.all([
+        supabase.from('cast_credits').select('id', { count: 'exact', head: true }).eq('tmdb_content_id', formData.tmdb_id || 0),
+        supabase.from('trailers').select('id').eq('content_id', contentId).maybeSingle(),
+        supabase.from('seasons').select('id', { count: 'exact', head: true }).eq('show_id', contentId),
+        supabase.from('episodes').select('id', { count: 'exact', head: true }).eq('show_id', contentId),
+      ]);
+
+      setImportedData({
+        castCount: castRes.count || 0,
+        trailerFound: !!trailerRes.data,
+        seasonsCount: seasonsRes.count || 0,
+        episodesCount: episodesRes.count || 0,
+      });
+    } catch (error) {
+      console.error('Error fetching imported data counts:', error);
+    }
+  };
 
   const handleImportFromTMDB = async () => {
     if (!searchQuery.trim()) {
@@ -104,6 +146,11 @@ const AdminUpcomingEdit = () => {
         release_date: result.first_air_date || result.release_date || "",
         content_type: contentType,
         tmdb_id: result.id,
+        genre: details.genres?.map((g: any) => g.name).join(", ") || "",
+        vote_average: details.vote_average || null,
+        popularity: details.popularity || null,
+        original_language: details.original_language || "",
+        tagline: details.tagline || "",
       });
 
       toast.success("Content info loaded from TMDB");
@@ -116,6 +163,11 @@ const AdminUpcomingEdit = () => {
   };
 
   const importAdditionalData = async (contentId: string, tmdbId: number, contentType: "movie" | "series") => {
+    let castCount = 0;
+    let trailerFound = false;
+    let seasonsCount = 0;
+    let episodesCount = 0;
+
     try {
       if (contentType === 'series') {
         // Fetch cast, trailer, and seasons for series
@@ -133,7 +185,8 @@ const AdminUpcomingEdit = () => {
 
         // Import cast
         if (creditsData.cast?.length > 0) {
-          for (const castMember of creditsData.cast.slice(0, 15)) {
+          const castToImport = creditsData.cast.slice(0, 15);
+          for (const castMember of castToImport) {
             const { data: existing } = await supabase
               .from('cast_members')
               .select('id')
@@ -163,6 +216,7 @@ const AdminUpcomingEdit = () => {
                 release_date: formData.release_date,
                 poster_path: formData.poster_path,
               });
+              castCount++;
             }
           }
         }
@@ -176,11 +230,13 @@ const AdminUpcomingEdit = () => {
               content_id: contentId,
               youtube_id: trailer.key,
             });
+            trailerFound = true;
           }
         }
 
         // Import seasons and episodes
         if (seriesData.number_of_seasons) {
+          seasonsCount = seriesData.number_of_seasons;
           for (let i = 1; i <= seriesData.number_of_seasons; i++) {
             const seasonRes = await fetch(`https://api.themoviedb.org/3/tv/${tmdbId}/season/${i}?api_key=${TMDB_API_KEY}`);
             const seasonData = await seasonRes.json();
@@ -230,6 +286,7 @@ const AdminUpcomingEdit = () => {
                       duration: ep.runtime,
                       tmdb_id: ep.id,
                     });
+                    episodesCount++;
                   }
                 }
               }
@@ -250,7 +307,8 @@ const AdminUpcomingEdit = () => {
 
         // Import cast
         if (creditsData.cast?.length > 0) {
-          for (const castMember of creditsData.cast.slice(0, 15)) {
+          const castToImport = creditsData.cast.slice(0, 15);
+          for (const castMember of castToImport) {
             const { data: existing } = await supabase
               .from('cast_members')
               .select('id')
@@ -280,6 +338,7 @@ const AdminUpcomingEdit = () => {
                 release_date: formData.release_date,
                 poster_path: formData.poster_path,
               });
+              castCount++;
             }
           }
         }
@@ -293,9 +352,18 @@ const AdminUpcomingEdit = () => {
               content_id: contentId,
               youtube_id: trailer.key,
             });
+            trailerFound = true;
           }
         }
       }
+
+      // Update imported data counts
+      setImportedData({
+        castCount,
+        trailerFound,
+        seasonsCount,
+        episodesCount,
+      });
     } catch (error) {
       console.error('Error importing additional data:', error);
       throw error;
@@ -483,6 +551,62 @@ const AdminUpcomingEdit = () => {
                   placeholder="https://..."
                 />
               </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="genre">Genre</Label>
+                <Input
+                  id="genre"
+                  value={formData.genre}
+                  onChange={(e) => setFormData({ ...formData, genre: e.target.value })}
+                  placeholder="Action, Drama, Comedy..."
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="vote_average">Rating (TMDB)</Label>
+                <Input
+                  id="vote_average"
+                  type="number"
+                  step="0.1"
+                  value={formData.vote_average || ""}
+                  onChange={(e) => setFormData({ ...formData, vote_average: e.target.value ? parseFloat(e.target.value) : null })}
+                  placeholder="0.0"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="popularity">Popularity</Label>
+                <Input
+                  id="popularity"
+                  type="number"
+                  step="0.1"
+                  value={formData.popularity || ""}
+                  onChange={(e) => setFormData({ ...formData, popularity: e.target.value ? parseFloat(e.target.value) : null })}
+                  placeholder="0.0"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="original_language">Original Language</Label>
+                <Input
+                  id="original_language"
+                  value={formData.original_language}
+                  onChange={(e) => setFormData({ ...formData, original_language: e.target.value })}
+                  placeholder="en, ko, ja..."
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="tagline">Tagline</Label>
+              <Input
+                id="tagline"
+                value={formData.tagline}
+                onChange={(e) => setFormData({ ...formData, tagline: e.target.value })}
+                placeholder="Enter tagline"
+              />
             </div>
 
             <div className="space-y-2">
@@ -506,6 +630,38 @@ const AdminUpcomingEdit = () => {
               />
               <Label htmlFor="is_featured">Featured Release</Label>
             </div>
+
+            {formData.content_id && formData.tmdb_id && (
+              <Card className="bg-muted/50">
+                <CardHeader>
+                  <CardTitle className="text-sm">Imported TMDB Data</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div className="space-y-1">
+                      <p className="text-muted-foreground">Cast Members</p>
+                      <p className="font-semibold text-lg">{importedData.castCount}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-muted-foreground">Trailer</p>
+                      <p className="font-semibold text-lg">{importedData.trailerFound ? '✓' : '✗'}</p>
+                    </div>
+                    {formData.content_type === 'series' && (
+                      <>
+                        <div className="space-y-1">
+                          <p className="text-muted-foreground">Seasons</p>
+                          <p className="font-semibold text-lg">{importedData.seasonsCount}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-muted-foreground">Episodes</p>
+                          <p className="font-semibold text-lg">{importedData.episodesCount}</p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             <div className="flex justify-end gap-2 pt-4">
               <Button variant="outline" onClick={() => navigate("/admin/upcoming")}>
