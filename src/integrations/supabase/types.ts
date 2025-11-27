@@ -1103,6 +1103,7 @@ export type Database = {
       profiles: {
         Row: {
           cover_image: string | null
+          email_notifications: boolean | null
           id: string
           profile_image: string | null
           updated_at: string | null
@@ -1111,6 +1112,7 @@ export type Database = {
         }
         Insert: {
           cover_image?: string | null
+          email_notifications?: boolean | null
           id: string
           profile_image?: string | null
           updated_at?: string | null
@@ -1119,6 +1121,7 @@ export type Database = {
         }
         Update: {
           cover_image?: string | null
+          email_notifications?: boolean | null
           id?: string
           profile_image?: string | null
           updated_at?: string | null

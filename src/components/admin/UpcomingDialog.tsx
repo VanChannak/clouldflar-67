@@ -73,6 +73,135 @@ export function UpcomingDialog({ open, onOpenChange, item }: UpcomingDialogProps
     setSearchQuery('');
   };
 
+  const importAdditionalData = async (contentId: string, tmdbId: number, contentType: string) => {
+    try {
+      const isTV = contentType === 'series';
+      const endpoint = isTV ? 'tv' : 'movie';
+      
+      const [creditsRes, videosRes] = await Promise.all([
+        fetch(`https://api.themoviedb.org/3/${endpoint}/${tmdbId}/credits?api_key=${TMDB_API_KEY}`),
+        fetch(`https://api.themoviedb.org/3/${endpoint}/${tmdbId}/videos?api_key=${TMDB_API_KEY}`)
+      ]);
+
+      const [creditsData, videosData] = await Promise.all([
+        creditsRes.json(),
+        videosRes.json()
+      ]);
+
+      // Import cast
+      if (creditsData.cast?.length > 0) {
+        for (const castMember of creditsData.cast.slice(0, 15)) {
+          const { data: existing } = await supabase
+            .from('cast_members')
+            .select('id')
+            .eq('tmdb_id', castMember.id)
+            .maybeSingle();
+
+          let castId = existing?.id;
+          if (!existing) {
+            const { data: newCast } = await supabase.from('cast_members').insert({
+              tmdb_id: castMember.id,
+              name: castMember.name,
+              profile_path: castMember.profile_path ? `https://image.tmdb.org/t/p/original${castMember.profile_path}` : null,
+              known_for_department: castMember.known_for_department,
+              popularity: castMember.popularity,
+              gender: castMember.gender,
+            }).select().single();
+            castId = newCast?.id;
+          }
+
+          if (castId) {
+            await supabase.from('cast_credits').insert({
+              cast_member_id: castId,
+              tmdb_content_id: tmdbId,
+              title: formData.title,
+              character_name: castMember.character,
+              media_type: isTV ? 'tv' : 'movie',
+              poster_path: formData.poster_path,
+            });
+          }
+        }
+      }
+
+      // Import trailer
+      if (videosData.results?.length > 0) {
+        const trailer = videosData.results.find((v: any) => v.type === 'Trailer' && v.site === 'YouTube') || videosData.results[0];
+        if (trailer?.site === 'YouTube') {
+          await supabase.from('trailers').delete().eq('content_id', contentId);
+          await supabase.from('trailers').insert({
+            content_id: contentId,
+            youtube_id: trailer.key,
+          });
+        }
+      }
+
+      // Import seasons and episodes for series
+      if (isTV) {
+        const seriesRes = await fetch(`https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${TMDB_API_KEY}`);
+        const seriesData = await seriesRes.json();
+
+        if (seriesData.number_of_seasons) {
+          for (let i = 1; i <= seriesData.number_of_seasons; i++) {
+            const seasonRes = await fetch(`https://api.themoviedb.org/3/tv/${tmdbId}/season/${i}?api_key=${TMDB_API_KEY}`);
+            const seasonData = await seasonRes.json();
+
+            if (seasonData.success !== false) {
+              const { data: existingSeason } = await supabase
+                .from('seasons')
+                .select('id')
+                .eq('show_id', contentId)
+                .eq('season_number', seasonData.season_number)
+                .maybeSingle();
+
+              let seasonId = existingSeason?.id;
+              if (!existingSeason) {
+                const { data: newSeason } = await supabase.from('seasons').insert({
+                  show_id: contentId,
+                  season_number: seasonData.season_number,
+                  title: seasonData.name,
+                  overview: seasonData.overview,
+                  poster_path: seasonData.poster_path ? `https://image.tmdb.org/t/p/original${seasonData.poster_path}` : null,
+                  tmdb_id: seasonData.id,
+                }).select().single();
+                seasonId = newSeason?.id;
+              }
+
+              if (seasonData.episodes && seasonId) {
+                for (const ep of seasonData.episodes) {
+                  const { data: existingEp } = await supabase
+                    .from('episodes')
+                    .select('id')
+                    .eq('show_id', contentId)
+                    .eq('season_id', seasonId)
+                    .eq('episode_number', ep.episode_number)
+                    .maybeSingle();
+
+                  if (!existingEp) {
+                    await supabase.from('episodes').insert({
+                      show_id: contentId,
+                      season_id: seasonId,
+                      episode_number: ep.episode_number,
+                      title: ep.name,
+                      overview: ep.overview,
+                      still_path: ep.still_path ? `https://image.tmdb.org/t/p/original${ep.still_path}` : null,
+                      air_date: ep.air_date,
+                      vote_average: ep.vote_average,
+                      duration: ep.runtime,
+                      tmdb_id: ep.id,
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error importing additional data:', error);
+      throw error;
+    }
+  };
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (item) {
@@ -81,11 +210,49 @@ export function UpcomingDialog({ open, onOpenChange, item }: UpcomingDialogProps
           .update(formData)
           .eq('id', item.id);
         if (error) throw error;
+
+        // Import additional data if TMDB ID exists and content is linked
+        if (formData.tmdb_id && item.content_id) {
+          await importAdditionalData(item.content_id, formData.tmdb_id, formData.content_type);
+        }
       } else {
-        const { error } = await supabase
+        // Create upcoming release
+        const { data: upcoming, error: upcomingError } = await supabase
           .from('upcoming_releases')
-          .insert(formData);
-        if (error) throw error;
+          .insert(formData)
+          .select()
+          .single();
+        if (upcomingError) throw upcomingError;
+
+        // Create content entry
+        if (formData.tmdb_id) {
+          const { data: content, error: contentError } = await supabase
+            .from('content')
+            .insert({
+              title: formData.title,
+              poster_path: formData.poster_path,
+              backdrop_path: formData.backdrop_path,
+              overview: formData.description,
+              release_date: formData.release_date,
+              tmdb_id: formData.tmdb_id,
+              content_type: formData.content_type,
+            })
+            .select()
+            .single();
+          
+          if (contentError) throw contentError;
+
+          // Link content to upcoming release
+          await supabase
+            .from('upcoming_releases')
+            .update({ content_id: content.id })
+            .eq('id', upcoming.id);
+
+          // Import additional data
+          if (content?.id) {
+            await importAdditionalData(content.id, formData.tmdb_id, formData.content_type);
+          }
+        }
       }
     },
     onSuccess: () => {
@@ -100,7 +267,7 @@ export function UpcomingDialog({ open, onOpenChange, item }: UpcomingDialogProps
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" onContextMenu={(e) => e.stopPropagation()}>
         <DialogHeader>
           <DialogTitle>{item ? 'Edit' : 'Add'} Upcoming Release</DialogTitle>
         </DialogHeader>
