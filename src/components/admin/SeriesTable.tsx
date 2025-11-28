@@ -43,6 +43,38 @@ export function SeriesTable() {
 
   const deleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
+      // Get tmdb_ids for cast credit deletion
+      const { data: contentData } = await supabase
+        .from('content')
+        .select('tmdb_id')
+        .in('id', ids);
+      
+      const tmdbIds = contentData?.map(c => c.tmdb_id).filter(Boolean) as number[];
+
+      // First delete related trailers to avoid foreign key constraint
+      const { error: trailerError } = await supabase
+        .from('trailers')
+        .delete()
+        .in('content_id', ids);
+      
+      if (trailerError) {
+        console.error('Error deleting trailers:', trailerError);
+        // Continue anyway as trailers might not exist
+      }
+
+      // Delete cast credits using tmdb_ids
+      if (tmdbIds.length > 0) {
+        const { error: castError } = await supabase
+          .from('cast_credits')
+          .delete()
+          .in('tmdb_content_id', tmdbIds);
+        
+        if (castError) {
+          console.error('Error deleting cast credits:', castError);
+        }
+      }
+
+      // Now delete the content
       const { error } = await supabase
         .from('content')
         .delete()
