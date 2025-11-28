@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { Search } from 'lucide-react';
 
 const TMDB_API_KEY = '5cfa727c2f549c594772a50e10e3f272';
@@ -34,6 +34,30 @@ export function UpcomingDialog({ open, onOpenChange, item }: UpcomingDialogProps
     tmdb_id: item?.tmdb_id || null,
     is_featured: item?.is_featured || false,
     status: item?.status || 'upcoming',
+    trailer_youtube_id: '',
+    trailer_self_hosted: '',
+  });
+
+  // Load existing trailer data when editing
+  const { data: existingTrailer } = useQuery({
+    queryKey: ['trailer', item?.content_id],
+    enabled: !!item?.content_id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('trailers')
+        .select('*')
+        .eq('content_id', item.content_id)
+        .maybeSingle();
+      
+      if (data) {
+        setFormData(prev => ({
+          ...prev,
+          trailer_youtube_id: data.youtube_id || '',
+          trailer_self_hosted: data.self_hosted_url || '',
+        }));
+      }
+      return data;
+    },
   });
 
   const searchTMDB = async (query: string) => {
@@ -56,7 +80,23 @@ export function UpcomingDialog({ open, onOpenChange, item }: UpcomingDialogProps
     }
   };
 
-  const selectTMDBItem = (result: any) => {
+  const selectTMDBItem = async (result: any) => {
+    // Fetch trailer from TMDB immediately
+    const isTV = result.media_type === 'tv';
+    const endpoint = isTV ? 'tv' : 'movie';
+    let trailerYoutubeId = '';
+    
+    try {
+      const videosRes = await fetch(`https://api.themoviedb.org/3/${endpoint}/${result.id}/videos?api_key=${TMDB_API_KEY}`);
+      const videosData = await videosRes.json();
+      const trailer = videosData.results?.find((v: any) => v.type === 'Trailer' && v.site === 'YouTube') || videosData.results?.[0];
+      if (trailer?.site === 'YouTube') {
+        trailerYoutubeId = trailer.key;
+      }
+    } catch (error) {
+      console.error('Failed to fetch trailer:', error);
+    }
+
     setFormData({
       ...formData,
       title: result.title || result.name,
@@ -68,6 +108,8 @@ export function UpcomingDialog({ open, onOpenChange, item }: UpcomingDialogProps
       tmdb_id: result.id,
       is_featured: formData.is_featured,
       status: formData.status,
+      trailer_youtube_id: trailerYoutubeId,
+      trailer_self_hosted: formData.trailer_self_hosted,
     });
     setSearchResults([]);
     setSearchQuery('');
@@ -123,8 +165,9 @@ export function UpcomingDialog({ open, onOpenChange, item }: UpcomingDialogProps
         }
       }
 
-      // Import trailer
-      if (videosData.results?.length > 0) {
+      // Import trailer - now handled by form data
+      // Keeping this for backward compatibility with auto-import
+      if (!formData.trailer_youtube_id && !formData.trailer_self_hosted && videosData.results?.length > 0) {
         const trailer = videosData.results.find((v: any) => v.type === 'Trailer' && v.site === 'YouTube') || videosData.results[0];
         if (trailer?.site === 'YouTube') {
           await supabase.from('trailers').delete().eq('content_id', contentId);
@@ -211,6 +254,16 @@ export function UpcomingDialog({ open, onOpenChange, item }: UpcomingDialogProps
           .eq('id', item.id);
         if (error) throw error;
 
+        // Update trailer if content is linked
+        if (item.content_id && (formData.trailer_youtube_id || formData.trailer_self_hosted)) {
+          await supabase.from('trailers').delete().eq('content_id', item.content_id);
+          await supabase.from('trailers').insert({
+            content_id: item.content_id,
+            youtube_id: formData.trailer_youtube_id || null,
+            self_hosted_url: formData.trailer_self_hosted || null,
+          });
+        }
+
         // Import additional data if TMDB ID exists and content is linked
         if (formData.tmdb_id && item.content_id) {
           await importAdditionalData(item.content_id, formData.tmdb_id, formData.content_type);
@@ -247,6 +300,15 @@ export function UpcomingDialog({ open, onOpenChange, item }: UpcomingDialogProps
             .from('upcoming_releases')
             .update({ content_id: content.id })
             .eq('id', upcoming.id);
+
+          // Save trailer data
+          if (formData.trailer_youtube_id || formData.trailer_self_hosted) {
+            await supabase.from('trailers').insert({
+              content_id: content.id,
+              youtube_id: formData.trailer_youtube_id || null,
+              self_hosted_url: formData.trailer_self_hosted || null,
+            });
+          }
 
           // Import additional data
           if (content?.id) {
@@ -392,6 +454,27 @@ export function UpcomingDialog({ open, onOpenChange, item }: UpcomingDialogProps
             <Input
               value={formData.backdrop_path}
               onChange={(e) => setFormData({ ...formData, backdrop_path: e.target.value })}
+              placeholder="https://..."
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Trailer YouTube ID</Label>
+            <Input
+              value={formData.trailer_youtube_id}
+              onChange={(e) => setFormData({ ...formData, trailer_youtube_id: e.target.value })}
+              placeholder="e.g., dQw4w9WgXcQ (auto-filled from TMDB)"
+            />
+            <p className="text-xs text-muted-foreground">
+              The YouTube video ID (e.g., from youtube.com/watch?v=<strong>dQw4w9WgXcQ</strong>)
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Trailer Self-Hosted URL (optional)</Label>
+            <Input
+              value={formData.trailer_self_hosted}
+              onChange={(e) => setFormData({ ...formData, trailer_self_hosted: e.target.value })}
               placeholder="https://..."
             />
           </div>
