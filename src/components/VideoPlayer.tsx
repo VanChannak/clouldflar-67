@@ -92,8 +92,8 @@ export const VideoPlayer = ({ videoSources, onEpisodeSelect, episodes = [], curr
       // Remove download attribute
       video.removeAttribute('download');
       
-      // Disable download controls
-      video.setAttribute('controlslist', 'nodownload nofullscreen noremoteplayback');
+      // Disable download controls (but allow fullscreen)
+      video.setAttribute('controlslist', 'nodownload noremoteplayback');
       video.setAttribute('disablepictureinpicture', 'true');
       video.setAttribute('disableremoteplayback', 'true');
       
