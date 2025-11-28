@@ -438,28 +438,15 @@ const WatchPage = () => {
     );
   }
 
-  // For series, check if we have episodes
+  // Log diagnostic info for debugging (but don't return early - would break hooks)
   if (type === 'series' && episodes.length === 0) {
-    console.warn('[WatchPage] Series has no episodes');
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="text-center max-w-md">
-          <h2 className="text-2xl font-bold mb-4">No Episodes Available</h2>
-          <p className="text-muted-foreground mb-2">
-            This series ({content.title}) doesn't have any episodes yet.
-          </p>
-          <p className="text-sm text-muted-foreground mb-6">
-            Series ID: {id} (TMDB: {content.tmdb_id})
-          </p>
-          <Button onClick={() => navigate('/series')} size="lg">
-            Browse Series
-          </Button>
-        </div>
-      </div>
-    );
+    console.warn('[WatchPage] Series has no episodes:', {
+      contentId: id,
+      tmdbId: content.tmdb_id,
+      title: content.title
+    });
   }
-
-  // For series, check if current episode has video sources
+  
   if (type === 'series' && currentEpisodeId && currentVideoSources.length === 0) {
     console.warn('[WatchPage] Episode has no video sources:', { episodeId: currentEpisodeId });
   }
