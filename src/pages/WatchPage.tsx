@@ -411,6 +411,47 @@ const WatchPage = () => {
     fetchShorts();
   }, []);
 
+  // Memoized VideoPlayer - MUST be before early returns to maintain hook order
+  const videoPlayerElement = useMemo(() => {
+    if (!content) return null;
+    
+    return (
+      <ContentAccessCheck
+        key={playerKey}
+        contentId={content.id}
+        episodeId={currentEpisodeId}
+        contentType={type || 'movie'}
+        contentTitle={content.title}
+        price={Number((currentEpisode as any)?.price || (content as any).price || 0)}
+        rentalPeriod={(content as any).purchase_period || 7}
+        contentBackdrop={content?.backdrop_path}
+        excludeFromPlan={(content as any).exclude_from_plan || false}
+        version={accessVersion}
+        onAccessGranted={() => setAccessGranted(true)}
+      >
+        <VideoPlayer 
+          key={playerKey}
+          videoSources={currentVideoSources}
+          episodes={episodes}
+          currentEpisodeId={currentEpisodeId}
+          onEpisodeSelect={handleEpisodeSelect}
+          contentBackdrop={content?.backdrop_path}
+          contentId={content?.id}
+        />
+      </ContentAccessCheck>
+    );
+  }, [
+    playerKey, 
+    content, 
+    currentEpisodeId, 
+    type, 
+    currentEpisode, 
+    accessVersion, 
+    currentVideoSources, 
+    episodes, 
+    handleEpisodeSelect
+  ]);
+
   if (loading) {
     console.log('[WatchPage] Loading state, isTablet:', isTablet, 'isLandscape:', isLandscape);
     return (
@@ -692,45 +733,6 @@ const WatchPage = () => {
   }
   
   const embedCode = `<iframe width="560" height="315" src="${embedUrl}" title="${videoTitle}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`;
-
-  // Memoized VideoPlayer to prevent unnecessary remounting
-  const videoPlayerElement = useMemo(() => (
-    <ContentAccessCheck
-      key={playerKey}
-      contentId={content.id}
-      episodeId={currentEpisodeId}
-      contentType={type || 'movie'}
-      contentTitle={content.title}
-      price={Number((currentEpisode as any)?.price || (content as any).price || 0)}
-      rentalPeriod={(content as any).purchase_period || 7}
-      contentBackdrop={content?.backdrop_path}
-      excludeFromPlan={(content as any).exclude_from_plan || false}
-      version={accessVersion}
-      onAccessGranted={() => setAccessGranted(true)}
-    >
-      <VideoPlayer 
-        key={playerKey}
-        videoSources={currentVideoSources}
-        episodes={episodes}
-        currentEpisodeId={currentEpisodeId}
-        onEpisodeSelect={handleEpisodeSelect}
-        contentBackdrop={content?.backdrop_path}
-        contentId={content?.id}
-      />
-    </ContentAccessCheck>
-  ), [
-    playerKey, 
-    content.id, 
-    content.title, 
-    content.backdrop_path, 
-    currentEpisodeId, 
-    type, 
-    currentEpisode, 
-    accessVersion, 
-    currentVideoSources, 
-    episodes, 
-    handleEpisodeSelect
-  ]);
 
   // iPad Layout
   if (isTablet) {
