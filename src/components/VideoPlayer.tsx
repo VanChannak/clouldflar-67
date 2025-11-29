@@ -1147,11 +1147,31 @@ export const VideoPlayer = ({ videoSources, onEpisodeSelect, episodes = [], curr
         // For desktop: try container fullscreen
         const elem = containerRef.current as any;
         
+        console.log('Container element check:', { 
+          hasContainer: !!elem, 
+          hasRequestFullscreen: !!(elem?.requestFullscreen),
+          hasWebkitRequestFullscreen: !!(elem?.webkitRequestFullscreen)
+        });
+        
         if (!elem) {
-          console.error('Container element not found');
+          console.error('Container element not found, trying video element fallback');
+          // Fallback to video element if container not available
+          if (videoRef.current && currentServer?.source_type !== 'iframe') {
+            const video = videoRef.current as any;
+            console.log('Using video element as fallback');
+            if (video.requestFullscreen) {
+              await video.requestFullscreen();
+              setIsFullscreen(true);
+              return;
+            } else if (video.webkitRequestFullscreen) {
+              await video.webkitRequestFullscreen();
+              setIsFullscreen(true);
+              return;
+            }
+          }
           toast({
             title: "Fullscreen Error",
-            description: "Player container not ready. Please try again.",
+            description: "Unable to enter fullscreen mode",
             variant: "destructive",
           });
           return;
@@ -1163,7 +1183,7 @@ export const VideoPlayer = ({ videoSources, onEpisodeSelect, episodes = [], curr
         
         if (elem.requestFullscreen) {
           console.log('Using requestFullscreen on container');
-          fullscreenPromise = elem.requestFullscreen({ navigationUI: 'hide' });
+          fullscreenPromise = elem.requestFullscreen({ navigationUI: 'hide' } as any);
         } else if (elem.webkitRequestFullscreen) {
           console.log('Using webkitRequestFullscreen on container');
           fullscreenPromise = elem.webkitRequestFullscreen();
@@ -1189,8 +1209,8 @@ export const VideoPlayer = ({ videoSources, onEpisodeSelect, episodes = [], curr
               throw new Error('Fullscreen not supported by this browser');
             }
           } else {
-            console.error('No fullscreen method available');
-            throw new Error('Fullscreen not supported by this browser');
+            console.error('No fullscreen method available and no video element');
+            throw new Error('Fullscreen not supported');
           }
         }
         

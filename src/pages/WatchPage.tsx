@@ -1421,9 +1421,9 @@ const WatchPage = () => {
             </div>
           )}
 
-          {/* Tabs: Conditional based on content type */}
+          {/* Tabs: Conditional based on content type and device */}
           <Tabs defaultValue={type === 'series' ? 'episodes' : 'foryou'} className="w-full mt-4">
-            <TabsList className={`w-full grid ${type === 'series' ? 'grid-cols-4' : 'grid-cols-4'} h-12 bg-transparent border-b-2 border-border rounded-none p-0 px-4`}>
+            <TabsList className={`w-full grid ${type === 'series' ? 'grid-cols-4' : 'grid-cols-3'} h-12 bg-transparent border-b-2 border-border rounded-none p-0 px-4`}>
               {type === 'series' && (
                 <TabsTrigger 
                   value="episodes"
@@ -1448,13 +1448,6 @@ const WatchPage = () => {
                 Comments
               </TabsTrigger>
               <TabsTrigger 
-                value="detail"
-                className="gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-              >
-                <Info className="h-4 w-4" />
-                Detail
-              </TabsTrigger>
-              <TabsTrigger 
                 value="home" 
                 className="gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
               >
@@ -1463,12 +1456,28 @@ const WatchPage = () => {
               </TabsTrigger>
             </TabsList>
 
-            {/* Episodes Tab - Horizontal scroll with big number art */}
+            {/* Episodes Tab - Horizontal scroll with season selector and big number art */}
             <TabsContent value="episodes" className="mt-4 px-4">
-              {episodes.length > 0 && (
+              {/* Season Selector */}
+              {type === 'series' && seasons.length > 1 && (
+                <div className="mb-4 flex gap-2 overflow-x-auto scrollbar-hide pb-2">
+                  {seasons.map((s) => (
+                    <Button
+                      key={s.id}
+                      variant={selectedSeasonId === s.id ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handleSeasonSelect(s.id)}
+                      className="flex-shrink-0"
+                    >
+                      Season {s.season_number}
+                    </Button>
+                  ))}
+                </div>
+              )}
+              {filteredEpisodes.length > 0 && (
                 <div className="w-full overflow-x-auto scrollbar-hide">
                   <div className="flex gap-2 pb-2">
-                    {episodes.map((ep) => (
+                    {filteredEpisodes.map((ep) => (
                       <button
                         key={ep.id}
                         onClick={() => handleEpisodeSelect(ep.id)}
@@ -1511,7 +1520,7 @@ const WatchPage = () => {
               )}
             </TabsContent>
 
-            {/* For You Tab - 5 columns, smallest margin */}
+            {/* For You Tab - 5 columns */}
             <TabsContent value="foryou" className="mt-4 px-4">
               <div className="grid grid-cols-5 gap-px">
                 {relatedContent.slice(0, 10).map((item) => {
@@ -1565,40 +1574,6 @@ const WatchPage = () => {
             {/* Comments Tab */}
             <TabsContent value="comments" className="mt-4 px-4">
               <CommentsList contentId={content.id} episodeId={type === 'series' ? currentEpisodeId : undefined} />
-            </TabsContent>
-
-            {/* Detail Tab */}
-            <TabsContent value="detail" className="mt-4 px-4">
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-sm font-semibold mb-2 text-muted-foreground">Title</h3>
-                  <p className="text-base">{content?.title}</p>
-                </div>
-                {content?.overview && (
-                  <div>
-                    <h3 className="text-sm font-semibold mb-2 text-muted-foreground">Overview</h3>
-                    <p className="text-sm">{content.overview}</p>
-                  </div>
-                )}
-                {content?.release_date && (
-                  <div>
-                    <h3 className="text-sm font-semibold mb-2 text-muted-foreground">Release Date</h3>
-                    <p className="text-sm">{new Date(content.release_date).toLocaleDateString()}</p>
-                  </div>
-                )}
-                {cast.length > 0 && (
-                  <div>
-                    <h3 className="text-sm font-semibold mb-2 text-muted-foreground">Cast</h3>
-                    <div className="flex flex-wrap gap-2">
-                      {cast.slice(0, 5).map((member) => (
-                        <span key={member.id} className="text-sm bg-muted px-2 py-1 rounded">
-                          {member.name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
             </TabsContent>
 
             {/* Home Tab - Navigation with icons */}
@@ -1995,10 +1970,10 @@ const WatchPage = () => {
               )}
 
 
-              {/* Tabs Section - Desktop: Episodes / For You / Comments / Detail */}
+              {/* Tabs Section - Desktop: Episodes / For You / Comments / Detail (hide Detail on tablet) */}
               {!isMobile && (
                 <Tabs defaultValue="episodes" className="w-full">
-                  <TabsList className="w-full grid grid-cols-4 h-12 bg-transparent border-b-2 border-border rounded-none p-0">
+                  <TabsList className={`w-full grid ${isTablet ? 'grid-cols-3' : 'grid-cols-4'} h-12 bg-transparent border-b-2 border-border rounded-none p-0`}>
                     <TabsTrigger 
                       value="episodes" 
                       className="gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
@@ -2020,13 +1995,15 @@ const WatchPage = () => {
                       <MessageSquare className="h-4 w-4" />
                       Comments
                     </TabsTrigger>
-                    <TabsTrigger 
-                      value="detail" 
-                      className="gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                    >
-                      <Info className="h-4 w-4" />
-                      Detail
-                    </TabsTrigger>
+                    {!isTablet && (
+                      <TabsTrigger 
+                        value="detail" 
+                        className="gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                      >
+                        <Info className="h-4 w-4" />
+                        Detail
+                      </TabsTrigger>
+                    )}
                   </TabsList>
 
                   {/* Episodes Tab - Horizontal scroll with big number */}
