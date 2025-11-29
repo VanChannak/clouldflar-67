@@ -360,7 +360,7 @@ export const VideoPlayer = ({ videoSources, onEpisodeSelect, episodes = [], curr
     setErrorMessage("");
   };
 
-  // Handle orientation changes without restarting video
+  // Handle orientation changes without interrupting playback
   useEffect(() => {
     if (!videoRef.current) return;
 
@@ -368,26 +368,39 @@ export const VideoPlayer = ({ videoSources, onEpisodeSelect, episodes = [], curr
       const video = videoRef.current;
       if (!video) return;
 
-      console.log('Orientation changed, preserving state...');
+      console.log('Orientation changed - video will continue playing naturally');
       
-      // Save current state
-      orientationStateRef.current = {
-        currentTime: video.currentTime,
-        isPlaying: !video.paused,
-        volume: video.volume
-      };
-
-      // No need to do anything else - video should continue playing
-      console.log('State preserved:', orientationStateRef.current);
+      // For fullscreen mode on iOS/iPad, the video element handles fullscreen
+      // natively and will continue playing through orientation changes.
+      // We don't need to save/restore state - just let it continue.
+      
+      // Only preserve state if video is actually being reloaded (which shouldn't happen)
+      if (video.readyState === 0 || video.networkState === 0) {
+        console.log('Video appears to be reloading, saving state...');
+        orientationStateRef.current = {
+          currentTime: video.currentTime,
+          isPlaying: !video.paused,
+          volume: video.volume
+        };
+      }
     };
 
     // Listen for orientation change events
     window.addEventListener('orientationchange', handleOrientationChange);
-    window.addEventListener('resize', handleOrientationChange);
+    
+    // Don't listen to resize on iOS/iPad in fullscreen as it causes unnecessary state saves
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    
+    if (!isIOS) {
+      window.addEventListener('resize', handleOrientationChange);
+    }
 
     return () => {
       window.removeEventListener('orientationchange', handleOrientationChange);
-      window.removeEventListener('resize', handleOrientationChange);
+      if (!isIOS) {
+        window.removeEventListener('resize', handleOrientationChange);
+      }
     };
   }, []);
 
@@ -1106,31 +1119,32 @@ export const VideoPlayer = ({ videoSources, onEpisodeSelect, episodes = [], curr
       const isNativeApp = Capacitor.isNativePlatform();
       
       console.log('Fullscreen toggle - currentlyFullscreen:', currentlyFullscreen, 'isIOS:', isIOS, 'isNativeApp:', isNativeApp);
-      console.log('containerRef.current:', !!containerRef.current, 'videoRef.current:', !!videoRef.current);
       
       if (!currentlyFullscreen) {
         // ENTERING FULLSCREEN
         console.log('Attempting to enter fullscreen...');
         
-        // For native apps or iOS, prioritize video element fullscreen
+        // For native apps or iOS/iPadOS, use video element fullscreen
         if ((isNativeApp || isIOS) && videoRef.current && currentServer?.source_type !== 'iframe') {
           const video = videoRef.current as any;
           
-          console.log('Attempting video element fullscreen...');
+          console.log('Attempting video element fullscreen for iOS/native...');
           
           // Try native fullscreen methods for video
           if (video.webkitEnterFullscreen) {
             console.log('Using webkitEnterFullscreen');
             video.webkitEnterFullscreen();
+            setIsFullscreen(true);
             return;
           } else if (video.requestFullscreen) {
             console.log('Using requestFullscreen on video');
             await video.requestFullscreen();
+            setIsFullscreen(true);
             return;
           }
         }
         
-        // Try container fullscreen for desktop/Android web
+        // For desktop: try container fullscreen
         const elem = containerRef.current as any;
         
         if (!elem) {
@@ -1143,14 +1157,13 @@ export const VideoPlayer = ({ videoSources, onEpisodeSelect, episodes = [], curr
           return;
         }
         
-        console.log('Attempting container fullscreen...', elem);
-        console.log('Element type:', elem.nodeName, 'Class:', elem.className);
+        console.log('Attempting container fullscreen for desktop...');
         
         let fullscreenPromise: Promise<void> | null = null;
         
         if (elem.requestFullscreen) {
           console.log('Using requestFullscreen on container');
-          fullscreenPromise = elem.requestFullscreen();
+          fullscreenPromise = elem.requestFullscreen({ navigationUI: 'hide' });
         } else if (elem.webkitRequestFullscreen) {
           console.log('Using webkitRequestFullscreen on container');
           fullscreenPromise = elem.webkitRequestFullscreen();
@@ -1161,7 +1174,7 @@ export const VideoPlayer = ({ videoSources, onEpisodeSelect, episodes = [], curr
           console.log('Using msRequestFullscreen on container');
           fullscreenPromise = elem.msRequestFullscreen();
         } else {
-          // Last resort: try video element even if not iOS/native
+          // Last resort: try video element
           console.log('No container fullscreen method, trying video element...');
           if (videoRef.current && currentServer?.source_type !== 'iframe') {
             const video = videoRef.current as any;
@@ -1184,6 +1197,7 @@ export const VideoPlayer = ({ videoSources, onEpisodeSelect, episodes = [], curr
         if (fullscreenPromise) {
           await fullscreenPromise;
           console.log('Fullscreen request completed successfully');
+          setIsFullscreen(true);
         }
       } else {
         // EXITING FULLSCREEN
@@ -1195,10 +1209,12 @@ export const VideoPlayer = ({ videoSources, onEpisodeSelect, episodes = [], curr
           if (video.webkitExitFullscreen) {
             console.log('Using webkitExitFullscreen on video');
             video.webkitExitFullscreen();
+            setIsFullscreen(false);
             return;
           } else if (video.exitFullscreen) {
             console.log('Using exitFullscreen on video');
             await video.exitFullscreen();
+            setIsFullscreen(false);
             return;
           }
         }
@@ -1225,6 +1241,7 @@ export const VideoPlayer = ({ videoSources, onEpisodeSelect, episodes = [], curr
         if (exitPromise) {
           await exitPromise;
           console.log('Exit fullscreen completed successfully');
+          setIsFullscreen(false);
         }
       }
     } catch (error: any) {
